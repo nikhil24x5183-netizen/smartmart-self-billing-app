@@ -1,223 +1,695 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SmartMart Self-Billing App</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-</head>
-<body>
-    <div id="root"></div>
+import React, { useState, useRef, useEffect } from 'react';
+import { Camera, ShoppingCart, Trash2, Plus, Minus, CreditCard, CheckCircle, X, Download, History, Percent, MapPin, Gift, TrendingUp, Clock, Search } from 'lucide-react';
+
+// Mock product database with more details
+const PRODUCTS_DB = {
+  '8901234567890': { name: 'Parle-G Biscuits', price: 10, category: 'Snacks', discount: 10, stock: 45 },
+  '8901234567891': { name: 'Maggi Noodles', price: 14, category: 'Instant Food', discount: 0, stock: 30 },
+  '8901234567892': { name: 'Amul Milk 500ml', price: 28, category: 'Dairy', discount: 5, stock: 20 },
+  '8901234567893': { name: 'Britannia Bread', price: 35, category: 'Bakery', discount: 0, stock: 15 },
+  '8901234567894': { name: 'Lays Chips', price: 20, category: 'Snacks', discount: 15, stock: 50 },
+  '8901234567895': { name: 'Coca Cola 250ml', price: 20, category: 'Beverages', discount: 0, stock: 60 },
+  '8901234567896': { name: 'Dettol Soap', price: 45, category: 'Personal Care', discount: 20, stock: 25 },
+  '8901234567897': { name: 'Colgate Toothpaste', price: 85, category: 'Personal Care', discount: 10, stock: 18 },
+};
+
+// Coupon codes
+const COUPONS = {
+  'SAVE50': { discount: 50, minPurchase: 200, type: 'flat' },
+  'MEGA20': { discount: 20, minPurchase: 100, type: 'percent' },
+  'FIRST10': { discount: 10, minPurchase: 0, type: 'percent' },
+};
+
+export default function MartBillingApp() {
+  const [cart, setCart] = useState([]);
+  const [scanning, setScanning] = useState(false);
+  const [showPayment, setShowPayment] = useState(false);
+  const [token, setToken] = useState(null);
+  const [manualBarcode, setManualBarcode] = useState('');
+  const [activeTab, setActiveTab] = useState('scan');
+  const [purchaseHistory, setPurchaseHistory] = useState([]);
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentReceipt, setCurrentReceipt] = useState(null);
+  const [queuePosition, setQueuePosition] = useState(Math.floor(Math.random() * 15) + 1);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+
+  const generateToken = () => {
+    const tokenNum = 'SMT-' + Date.now().toString().slice(-8);
+    return tokenNum;
+  };
+
+  const addToCart = (barcode) => {
+    const product = PRODUCTS_DB[barcode];
+    if (product) {
+      if (product.stock <= 0) {
+        alert('Sorry, this product is out of stock!');
+        return;
+      }
+      const existingItem = cart.find(item => item.barcode === barcode);
+      if (existingItem) {
+        if (existingItem.quantity >= product.stock) {
+          alert(`Only ${product.stock} units available!`);
+          return;
+        }
+        setCart(cart.map(item => 
+          item.barcode === barcode 
+            ? { ...item, quantity: item.quantity + 1 }
+            : item
+        ));
+      } else {
+        setCart([...cart, { ...product, barcode, quantity: 1 }]);
+      }
+    } else {
+      alert('Product not found in database!');
+    }
+  };
+
+  const updateQuantity = (barcode, change) => {
+    setCart(cart.map(item => {
+      if (item.barcode === barcode) {
+        const newQty = item.quantity + change;
+        if (newQty > item.stock) {
+          alert(`Only ${item.stock} units available!`);
+          return item;
+        }
+        return newQty > 0 ? { ...item, quantity: newQty } : item;
+      }
+      return item;
+    }).filter(item => item.quantity > 0));
+  };
+
+  const removeFromCart = (barcode) => {
+    setCart(cart.filter(item => item.barcode !== barcode));
+  };
+
+  const calculateSubtotal = () => {
+    return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  };
+
+  const calculateDiscount = () => {
+    const itemDiscount = cart.reduce((sum, item) => {
+      const discount = (item.price * item.discount / 100) * item.quantity;
+      return sum + discount;
+    }, 0);
     
-    <script type="text/babel">
-        const { useState, useRef, useEffect } = React;
-        
-        const Camera = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
-        const ShoppingCart = () => <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>;
-        const Plus = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>;
-        const Minus = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>;
-        const Trash2 = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>;
-        const CheckCircle = () => <svg className="w-20 h-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
-        const CreditCard = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>;
+    let couponDiscount = 0;
+    if (appliedCoupon) {
+      const subtotal = calculateSubtotal();
+      if (appliedCoupon.type === 'flat') {
+        couponDiscount = appliedCoupon.discount;
+      } else {
+        couponDiscount = (subtotal * appliedCoupon.discount) / 100;
+      }
+    }
+    
+    return itemDiscount + couponDiscount;
+  };
 
-        const PRODUCTS_DB = {
-          '8901234567890': { name: 'Parle-G Biscuits', price: 10, category: 'Snacks', discount: 10 },
-          '8901234567891': { name: 'Maggi Noodles', price: 14, category: 'Instant Food', discount: 0 },
-          '8901234567892': { name: 'Amul Milk 500ml', price: 28, category: 'Dairy', discount: 5 },
-          '8901234567893': { name: 'Britannia Bread', price: 35, category: 'Bakery', discount: 0 },
-          '8901234567894': { name: 'Lays Chips', price: 20, category: 'Snacks', discount: 15 },
-          '8901234567895': { name: 'Coca Cola 250ml', price: 20, category: 'Beverages', discount: 0 },
-        };
+  const calculateTotal = () => {
+    return Math.max(0, calculateSubtotal() - calculateDiscount());
+  };
 
-        function App() {
-          const [cart, setCart] = useState([]);
-          const [token, setToken] = useState(null);
-          const [manualBarcode, setManualBarcode] = useState('');
-          const [showPayment, setShowPayment] = useState(false);
+  const applyCoupon = () => {
+    const coupon = COUPONS[couponCode.toUpperCase()];
+    if (coupon) {
+      const subtotal = calculateSubtotal();
+      if (subtotal >= coupon.minPurchase) {
+        setAppliedCoupon(coupon);
+        alert(`Coupon applied! You saved ₹${coupon.type === 'flat' ? coupon.discount : Math.round((subtotal * coupon.discount) / 100)}`);
+      } else {
+        alert(`Minimum purchase of ₹${coupon.minPurchase} required!`);
+      }
+    } else {
+      alert('Invalid coupon code!');
+    }
+  };
 
-          const addToCart = (barcode) => {
-            const product = PRODUCTS_DB[barcode];
-            if (product) {
-              const existingItem = cart.find(item => item.barcode === barcode);
-              if (existingItem) {
-                setCart(cart.map(item => 
-                  item.barcode === barcode ? { ...item, quantity: item.quantity + 1 } : item
-                ));
-              } else {
-                setCart([...cart, { ...product, barcode, quantity: 1 }]);
-              }
-            }
-          };
+  const handleManualScan = () => {
+    if (manualBarcode.trim()) {
+      addToCart(manualBarcode.trim());
+      setManualBarcode('');
+    }
+  };
 
-          const updateQuantity = (barcode, change) => {
-            setCart(cart.map(item => {
-              if (item.barcode === barcode) {
-                const newQty = item.quantity + change;
-                return newQty > 0 ? { ...item, quantity: newQty } : item;
-              }
-              return item;
-            }).filter(item => item.quantity > 0));
-          };
+  const handlePayment = () => {
+    const newToken = generateToken();
+    const receipt = {
+      token: newToken,
+      items: cart,
+      subtotal: calculateSubtotal(),
+      discount: calculateDiscount(),
+      total: calculateTotal(),
+      timestamp: new Date().toLocaleString(),
+      coupon: appliedCoupon,
+    };
+    setCurrentReceipt(receipt);
+    setToken(newToken);
+    setPurchaseHistory([receipt, ...purchaseHistory]);
+    setShowPayment(false);
+    setQueuePosition(Math.floor(Math.random() * 5) + 1);
+  };
 
-          const removeFromCart = (barcode) => {
-            setCart(cart.filter(item => item.barcode !== barcode));
-          };
+  const downloadReceipt = () => {
+    if (!currentReceipt) return;
+    
+    let receiptText = `
+╔════════════════════════════════════╗
+║       SMARTMART RECEIPT            ║
+╚════════════════════════════════════╝
 
-          const calculateTotal = () => {
-            return cart.reduce((sum, item) => {
-              const discountedPrice = item.price * (1 - item.discount / 100);
-              return sum + (discountedPrice * item.quantity);
-            }, 0);
-          };
+Token: ${currentReceipt.token}
+Date: ${currentReceipt.timestamp}
 
-          const handlePayment = () => {
-            setToken('SMT-' + Date.now().toString().slice(-8));
-            setShowPayment(false);
-          };
+ITEMS:
+${currentReceipt.items.map(item => 
+  `${item.name}\n  ${item.quantity} x ₹${item.price} = ₹${item.quantity * item.price}${item.discount > 0 ? ` (-${item.discount}%)` : ''}`
+).join('\n')}
 
-          const resetApp = () => {
-            setCart([]);
-            setToken(null);
-          };
+────────────────────────────────────
+Subtotal:     ₹${currentReceipt.subtotal}
+Discount:    -₹${currentReceipt.discount.toFixed(2)}
+────────────────────────────────────
+TOTAL:        ₹${currentReceipt.total.toFixed(2)}
 
-          if (token) {
-            return (
-              <div className="min-h-screen bg-gradient-to-br from-green-50 to-green-100 p-4">
-                <div className="max-w-md mx-auto bg-white rounded-2xl shadow-2xl p-8 text-center">
-                  <div className="text-green-500 mx-auto mb-4"><CheckCircle /></div>
-                  <h2 className="text-3xl font-bold text-gray-800 mb-2">Payment Successful!</h2>
-                  <p className="text-gray-600 mb-6">Show this token at exit</p>
-                  
-                  <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl p-6 mb-6">
-                    <p className="text-sm mb-2">Token Number</p>
-                    <p className="text-3xl font-bold tracking-wider">{token}</p>
-                  </div>
+Thank you for shopping with us!
+Show this token at exit.
+    `;
 
-                  <div className="bg-gray-100 rounded-xl p-4 mb-6">
-                    <div className="w-48 h-48 bg-white mx-auto flex items-center justify-center rounded-lg border-4 border-gray-300">
-                      <div className="text-center">
-                        <div className="text-6xl mb-2">▦</div>
-                        <p className="text-xs text-gray-500">QR Code</p>
-                      </div>
-                    </div>
-                  </div>
+    const blob = new Blob([receiptText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `receipt-${currentReceipt.token}.txt`;
+    a.click();
+  };
 
-                  <div className="bg-blue-50 rounded-lg p-4 mb-6">
-                    <p className="text-2xl font-bold text-blue-600">₹{calculateTotal().toFixed(2)}</p>
-                  </div>
+  const resetApp = () => {
+    setCart([]);
+    setToken(null);
+    setShowPayment(false);
+    setAppliedCoupon(null);
+    setCouponCode('');
+    setCurrentReceipt(null);
+  };
 
-                  <button onClick={resetApp} className="w-full bg-gray-800 text-white py-3 rounded-xl font-semibold">
-                    Start New Shopping
-                  </button>
-                </div>
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } 
+      });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        streamRef.current = stream;
+      }
+      setScanning(true);
+    } catch (err) {
+      alert('Camera access denied. Please use manual entry or allow camera permission.');
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setScanning(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  const filteredProducts = Object.entries(PRODUCTS_DB).filter(([_, product]) =>
+    product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    product.category.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  if (token) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-green-100 p-4">
+        <div className="max-w-md mx-auto bg-white rounded-2xl shadow-2xl p-8">
+          <div className="text-center mb-6">
+            <CheckCircle className="w-20 h-20 text-green-500 mx-auto mb-4" />
+            <h2 className="text-3xl font-bold text-gray-800 mb-2">Payment Successful!</h2>
+            <p className="text-gray-600">Show this token at exit</p>
+          </div>
+          
+          <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl p-6 mb-4">
+            <p className="text-sm mb-2">Your Token Number</p>
+            <p className="text-3xl font-bold tracking-wider">{token}</p>
+          </div>
+
+          <div className="bg-yellow-50 border-2 border-yellow-300 rounded-lg p-4 mb-4 flex items-center gap-3">
+            <Clock className="w-8 h-8 text-yellow-600" />
+            <div>
+              <p className="text-sm font-semibold text-yellow-800">Queue Position</p>
+              <p className="text-2xl font-bold text-yellow-600">#{queuePosition}</p>
+              <p className="text-xs text-yellow-700">Estimated wait: {queuePosition * 2} mins</p>
+            </div>
+          </div>
+
+          <div className="bg-gray-100 rounded-xl p-4 mb-4">
+            <div className="w-48 h-48 bg-white mx-auto flex items-center justify-center rounded-lg border-4 border-gray-300">
+              <div className="text-center">
+                <div className="text-6xl mb-2">▦</div>
+                <p className="text-xs text-gray-500">QR Code</p>
+                <p className="text-xs text-gray-400 mt-2">{token}</p>
               </div>
-            );
-          }
+            </div>
+          </div>
 
-          return (
-            <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
-              <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-4 shadow-lg">
-                <div className="max-w-md mx-auto flex items-center justify-between">
-                  <div>
-                    <h1 className="text-2xl font-bold">SmartMart</h1>
-                    <p className="text-sm text-blue-100">Self-Billing App</p>
-                  </div>
-                  <ShoppingCart />
-                </div>
+          <div className="bg-blue-50 rounded-lg p-4 mb-4">
+            <div className="flex justify-between mb-2">
+              <span className="text-gray-600">Items:</span>
+              <span className="font-semibold">{cart.length}</span>
+            </div>
+            <div className="flex justify-between mb-2">
+              <span className="text-gray-600">Subtotal:</span>
+              <span className="font-semibold">₹{calculateSubtotal()}</span>
+            </div>
+            <div className="flex justify-between mb-2 text-green-600">
+              <span>Savings:</span>
+              <span className="font-semibold">-₹{calculateDiscount().toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between pt-2 border-t-2 border-blue-200">
+              <span className="font-bold text-gray-800">Total Paid:</span>
+              <span className="text-2xl font-bold text-blue-600">₹{calculateTotal()}</span>
+            </div>
+          </div>
+
+          <button 
+            onClick={downloadReceipt}
+            className="w-full bg-green-600 text-white py-3 rounded-xl font-semibold hover:bg-green-700 transition mb-2 flex items-center justify-center gap-2"
+          >
+            <Download className="w-5 h-5" />
+            Download Receipt
+          </button>
+
+          <button 
+            onClick={resetApp}
+            className="w-full bg-gray-800 text-white py-3 rounded-xl font-semibold hover:bg-gray-700 transition"
+          >
+            Start New Shopping
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 pb-20">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-4 shadow-lg sticky top-0 z-10">
+        <div className="max-w-md mx-auto">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h1 className="text-2xl font-bold">SmartMart</h1>
+              <p className="text-sm text-blue-100">Self-Billing App</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="bg-white bg-opacity-20 rounded-lg px-3 py-1">
+                <p className="text-xs">Cart</p>
+                <p className="text-lg font-bold">{cart.length}</p>
               </div>
+              <ShoppingCart className="w-8 h-8" />
+            </div>
+          </div>
+          
+          {/* Savings Banner */}
+          {calculateDiscount() > 0 && (
+            <div className="bg-yellow-400 text-yellow-900 rounded-lg p-2 flex items-center gap-2">
+              <TrendingUp className="w-5 h-5" />
+              <span className="text-sm font-semibold">You're saving ₹{calculateDiscount().toFixed(2)} today!</span>
+            </div>
+          )}
+        </div>
+      </div>
 
-              <div className="max-w-md mx-auto p-4">
-                <div className="bg-white rounded-2xl shadow-lg p-6 mb-4">
-                  <h2 className="text-xl font-bold text-gray-800 mb-4">Scan Products</h2>
-                  
-                  <div className="mb-4">
+      <div className="max-w-md mx-auto p-4">
+        {/* Tabs */}
+        <div className="bg-white rounded-2xl shadow-lg mb-4 p-2 flex gap-2">
+          <button
+            onClick={() => setActiveTab('scan')}
+            className={`flex-1 py-2 rounded-lg font-semibold transition flex items-center justify-center gap-2 ${
+              activeTab === 'scan' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            <Camera className="w-4 h-4" />
+            Scan
+          </button>
+          <button
+            onClick={() => setActiveTab('browse')}
+            className={`flex-1 py-2 rounded-lg font-semibold transition flex items-center justify-center gap-2 ${
+              activeTab === 'browse' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            <Search className="w-4 h-4" />
+            Browse
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`flex-1 py-2 rounded-lg font-semibold transition flex items-center justify-center gap-2 ${
+              activeTab === 'history' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            <History className="w-4 h-4" />
+            History
+          </button>
+        </div>
+
+        {/* Scan Tab */}
+        {activeTab === 'scan' && (
+          <div className="bg-white rounded-2xl shadow-lg p-6 mb-4">
+            <h2 className="text-xl font-bold text-gray-800 mb-4">Scan Products</h2>
+            
+            {!scanning ? (
+              <>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Enter Barcode Manually
+                  </label>
+                  <div className="flex gap-2">
                     <input
                       type="text"
                       value={manualBarcode}
                       onChange={(e) => setManualBarcode(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && manualBarcode && (addToCart(manualBarcode), setManualBarcode(''))}
-                      placeholder="Enter barcode"
-                      className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none mb-2"
+                      onKeyPress={(e) => e.key === 'Enter' && handleManualScan()}
+                      placeholder="e.g., 8901234567890"
+                      className="flex-1 px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
                     />
+                    <button 
+                      onClick={handleManualScan}
+                      className="bg-blue-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-blue-700 transition"
+                    >
+                      Add
+                    </button>
                   </div>
+                </div>
 
-                  <div className="p-3 bg-gray-50 rounded-lg">
-                    <p className="text-xs font-semibold text-gray-700 mb-2">Quick Add:</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {Object.entries(PRODUCTS_DB).map(([barcode, product]) => (
-                        <button key={barcode} onClick={() => addToCart(barcode)} className="text-xs bg-white px-3 py-2 rounded-lg border hover:bg-blue-50">
-                          <p className="font-semibold">{product.name}</p>
-                          <p className="text-gray-500">₹{product.price}</p>
-                        </button>
-                      ))}
+                <button 
+                  onClick={startCamera}
+                  className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 rounded-xl font-semibold hover:shadow-lg transition flex items-center justify-center gap-2 mb-4"
+                >
+                  <Camera className="w-5 h-5" />
+                  Open Camera Scanner
+                </button>
+
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs font-semibold text-gray-700 mb-2">Quick Add (Demo Barcodes):</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.entries(PRODUCTS_DB).slice(0, 4).map(([barcode, product]) => (
+                      <button
+                        key={barcode}
+                        onClick={() => addToCart(barcode)}
+                        className="text-xs bg-white px-3 py-2 rounded-lg border border-gray-300 hover:bg-blue-50 hover:border-blue-400 transition text-left"
+                      >
+                        <p className="font-semibold text-gray-800">{product.name}</p>
+                        <p className="text-gray-500">₹{product.price}</p>
+                        {product.discount > 0 && (
+                          <p className="text-green-600 font-semibold">{product.discount}% OFF</p>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="relative mb-4">
+                  <video 
+                    ref={videoRef} 
+                    autoPlay 
+                    playsInline
+                    className="w-full h-64 bg-black rounded-lg object-cover"
+                  />
+                  <div className="absolute inset-0 border-4 border-blue-500 rounded-lg pointer-events-none">
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-48 h-32 border-4 border-green-400"></div>
+                  </div>
+                </div>
+                <p className="text-center text-sm text-gray-600 mb-3">
+                  Align barcode within the frame
+                </p>
+                <button 
+                  onClick={stopCamera}
+                  className="w-full bg-red-500 text-white py-3 rounded-xl font-semibold hover:bg-red-600 transition flex items-center justify-center gap-2"
+                >
+                  <X className="w-5 h-5" />
+                  Close Camera
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Browse Tab */}
+        {activeTab === 'browse' && (
+          <div className="bg-white rounded-2xl shadow-lg p-6 mb-4">
+            <h2 className="text-xl font-bold text-gray-800 mb-4">Browse Products</h2>
+            
+            <div className="mb-4">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search products..."
+                className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {filteredProducts.map(([barcode, product]) => (
+                <div key={barcode} className="bg-gray-50 p-3 rounded-lg flex items-center justify-between">
+                  <div className="flex-1">
+                    <p className="font-semibold text-gray-800">{product.name}</p>
+                    <p className="text-sm text-gray-500">{product.category}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="font-bold text-blue-600">₹{product.price}</span>
+                      {product.discount > 0 && (
+                        <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded font-semibold">
+                          {product.discount}% OFF
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-500">Stock: {product.stock}</span>
                     </div>
                   </div>
+                  <button
+                    onClick={() => addToCart(barcode)}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-blue-700 transition"
+                  >
+                    Add
+                  </button>
                 </div>
+              ))}
+            </div>
+          </div>
+        )}
 
-                <div className="bg-white rounded-2xl shadow-lg p-6 mb-4">
-                  <h2 className="text-xl font-bold text-gray-800 mb-4">Cart ({cart.length})</h2>
-                  
-                  {cart.length === 0 ? (
-                    <p className="text-center text-gray-400 py-8">Your cart is empty</p>
-                  ) : (
-                    <>
-                      <div className="space-y-3 mb-4">
-                        {cart.map((item) => (
-                          <div key={item.barcode} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <div className="flex-1">
-                              <p className="font-semibold text-gray-800">{item.name}</p>
-                              <p className="text-sm text-blue-600">₹{item.price}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => updateQuantity(item.barcode, -1)} className="bg-gray-200 p-1 rounded"><Minus /></button>
-                              <span className="font-bold w-8 text-center">{item.quantity}</span>
-                              <button onClick={() => updateQuantity(item.barcode, 1)} className="bg-gray-200 p-1 rounded"><Plus /></button>
-                              <button onClick={() => removeFromCart(item.barcode)} className="bg-red-100 p-1 rounded ml-2"><Trash2 /></button>
-                            </div>
-                          </div>
-                        ))}
+        {/* History Tab */}
+        {activeTab === 'history' && (
+          <div className="bg-white rounded-2xl shadow-lg p-6 mb-4">
+            <h2 className="text-xl font-bold text-gray-800 mb-4">Purchase History</h2>
+            
+            {purchaseHistory.length === 0 ? (
+              <div className="text-center py-8">
+                <History className="w-16 h-16 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-400">No purchase history yet</p>
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-96 overflow-y-auto">
+                {purchaseHistory.map((receipt, idx) => (
+                  <div key={idx} className="bg-gray-50 p-4 rounded-lg">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <p className="font-bold text-gray-800">{receipt.token}</p>
+                        <p className="text-xs text-gray-500">{receipt.timestamp}</p>
                       </div>
+                      <p className="text-lg font-bold text-blue-600">₹{receipt.total.toFixed(2)}</p>
+                    </div>
+                    <p className="text-sm text-gray-600">{receipt.items.length} items purchased</p>
+                    {receipt.discount > 0 && (
+                      <p className="text-sm text-green-600 font-semibold">Saved ₹{receipt.discount.toFixed(2)}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
-                      <div className="pt-4 border-t-2">
-                        <div className="flex justify-between mb-4">
-                          <span className="text-lg font-semibold">Total:</span>
-                          <span className="text-3xl font-bold text-green-600">₹{calculateTotal().toFixed(2)}</span>
-                        </div>
-                        <button onClick={() => setShowPayment(true)} className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2">
-                          <CreditCard />
-                          Proceed to Payment
+        {/* Cart */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-4">
+          <h2 className="text-xl font-bold text-gray-800 mb-4">Your Cart ({cart.length} items)</h2>
+          
+          {cart.length === 0 ? (
+            <p className="text-center text-gray-400 py-8">Your cart is empty. Add products to continue!</p>
+          ) : (
+            <>
+              <div className="space-y-3 mb-4 max-h-64 overflow-y-auto">
+                {cart.map((item) => (
+                  <div key={item.barcode} className="flex items-start justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex-1">
+                      <p className="font-semibold text-gray-800">{item.name}</p>
+                      <p className="text-xs text-gray-500">{item.category}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <p className="text-sm font-semibold text-blue-600">₹{item.price} each</p>
+                        {item.discount > 0 && (
+                          <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded font-semibold">
+                            {item.discount}% OFF
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Total: ₹{(item.price * item.quantity * (1 - item.discount / 100)).toFixed(2)}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="flex items-center gap-1">
+                        <button 
+                          onClick={() => updateQuantity(item.barcode, -1)}
+                          className="bg-gray-200 p-1 rounded hover:bg-gray-300"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="font-bold text-gray-800 w-8 text-center">{item.quantity}</span>
+                        <button 
+                          onClick={() => updateQuantity(item.barcode, 1)}
+                          className="bg-gray-200 p-1 rounded hover:bg-gray-300"
+                        >
+                          <Plus className="w-3 h-3" />
                         </button>
                       </div>
-                    </>
-                  )}
-                </div>
+                      <button 
+                        onClick={() => removeFromCart(item.barcode)}
+                        className="bg-red-100 p-1 rounded hover:bg-red-200"
+                      >
+                        <Trash2 className="w-3 h-3 text-red-600" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
 
-              {showPayment && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
-                  <div className="bg-white rounded-2xl p-6 max-w-md w-full">
-                    <h2 className="text-2xl font-bold mb-4">Complete Payment</h2>
-                    <div className="bg-gray-50 rounded-lg p-4 mb-4">
-                      <p className="text-4xl font-bold text-green-600">₹{calculateTotal().toFixed(2)}</p>
+              {/* Coupon Section */}
+              <div className="mb-4 p-4 bg-purple-50 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Gift className="w-5 h-5 text-purple-600" />
+                  <p className="font-semibold text-gray-800">Have a coupon?</p>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={couponCode}
+                    onChange={(e) => setCouponCode(e.target.value)}
+                    placeholder="Enter code (e.g., SAVE50)"
+                    className="flex-1 px-3 py-2 border-2 border-purple-300 rounded-lg focus:border-purple-500 focus:outline-none text-sm"
+                  />
+                  <button 
+                    onClick={applyCoupon}
+                    className="bg-purple-600 text-white px-4 py-2 rounded-lg font-semibold hover:bg-purple-700 transition text-sm"
+                  >
+                    Apply
+                  </button>
+                </div>
+                {appliedCoupon && (
+                  <p className="text-sm text-green-600 font-semibold mt-2 flex items-center gap-1">
+                    <CheckCircle className="w-4 h-4" />
+                    Coupon applied!
+                  </p>
+                )}
+                <p className="text-xs text-gray-500 mt-2">Try: SAVE50, MEGA20, FIRST10</p>
+              </div>
+
+              <div className="pt-4 border-t-2 border-gray-200">
+                <div className="space-y-2 mb-4">
+                  <div className="flex justify-between text-gray-600">
+                    <span>Subtotal:</span>
+                    <span>₹{calculateSubtotal()}</span>
+                  </div>
+                  {calculateDiscount() > 0 && (
+                    <div className="flex justify-between text-green-600 font-semibold">
+                      <span>Total Savings:</span>
+                      <span>-₹{calculateDiscount().toFixed(2)}</span>
                     </div>
-                    <button onClick={handlePayment} className="w-full bg-green-600 text-white py-3 rounded-lg font-bold mb-2">
-                      Complete Payment
-                    </button>
-                    <button onClick={() => setShowPayment(false)} className="w-full bg-gray-200 py-3 rounded-lg font-semibold">
-                      Cancel
-                    </button>
+                  )}
+                  <div className="flex justify-between items-center pt-2 border-t border-gray-200">
+                    <span className="text-lg font-semibold text-gray-700">Total:</span>
+                    <span className="text-3xl font-bold text-green-600">₹{calculateTotal()}</span>
                   </div>
                 </div>
-              )}
-            </div>
-          );
-        }
+                <button 
+                  onClick={() => setShowPayment(true)}
+                  className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white py-4 rounded-xl font-bold text-lg hover:shadow-lg transition flex items-center justify-center gap-2"
+                >
+                  <CreditCard className="w-6 h-6" />
+                  Proceed to Payment
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
 
-        ReactDOM.render(<App />, document.getElementById('root'));
-    </script>
-</body>
-</html>
-```
+      {/* Payment Modal */}
+      {showPayment && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <h2 className="text-2xl font-bold text-gray-800 mb-4">Complete Payment</h2>
+            
+            <div className="bg-gray-50 rounded-lg p-4 mb-4">
+              <div className="flex justify-between mb-2">
+                <span className="text-gray-600">Subtotal:</span>
+                <span className="font-semibold">₹{calculateSubtotal()}</span>
+              </div>
+              {calculateDiscount() > 0 && (
+                <div className="flex justify-between mb-2 text-green-600">
+                  <span>Savings:</span>
+                  <span className="font-semibold">-₹{calculateDiscount().toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex justify-between pt-2 border-t border-gray-300">
+                <span className="text-gray-800 font-bold">Total:</span>
+                <span className="text-4xl font-bold text-green-600">₹{calculateTotal()}</span>
+              </div>
+            </div>
+            
+            <div className="space-y-3 mb-6">
+              <button className="w-full bg-gradient-to-r from-purple-600 to-purple-700 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition flex items-center justify-center gap-2">
+                <span className="text-xl">📱</span>
+                Pay with UPI
+              </button>
+              <button className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition flex items-center justify-center gap-2">
+                <CreditCard className="w-5 h-5" />
+                Pay with Card
+              </button>
+              <button className="w-full bg-gradient-to-r from-green-600 to-green-700 text-white py-3 rounded-lg font-semibold hover:shadow-lg transition flex items-center justify-center gap-2">
+                <span className="text-xl">💳</span>
+                Pay with Wallet
+              </button>
+            </div>
+
+            <button 
+              onClick={handlePayment}
+              className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white py-3 rounded-lg font-bold hover:shadow-lg transition mb-2"
+            >
+              Simulate Payment Success
+            </button>
+            
+            <button 
+              onClick={() => setShowPayment(false)}
+              className="w-full bg-gray-200 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-300 transition"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
