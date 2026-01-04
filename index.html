@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartMart Self-Billing App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useRef, useEffect } = React;
+        
+        const Camera = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
+        const ShoppingCart = () => <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" /></svg>;
+        const Plus = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>;
+        const Minus = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>;
+        const Trash2 = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>;
+        const CheckCircle = () => <svg className="w-20 h-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+        const CreditCard = () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>;
+
+        const PRODUCTS_DB = {
+          '8901234567890': { name: 'Parle-G Biscuits', price: 10, category: 'Snacks', discount: 10 },
+          '8901234567891': { name: 'Maggi Noodles', price: 14, category: 'Instant Food', discount: 0 },
+          '8901234567892': { name: 'Amul Milk 500ml', price: 28, category: 'Dairy', discount: 5 },
+          '8901234567893': { name: 'Britannia Bread', price: 35, category: 'Bakery', discount: 0 },
+          '8901234567894': { name: 'Lays Chips', price: 20, category: 'Snacks', discount: 15 },
+          '8901234567895': { name: 'Coca Cola 250ml', price: 20, category: 'Beverages', discount: 0 },
+        };
+
+        function App() {
+          const [cart, setCart] = useState([]);
+          const [token, setToken] = useState(null);
+          const [manualBarcode, setManualBarcode] = useState('');
+          const [showPayment, setShowPayment] = useState(false);
+
+          const addToCart = (barcode) => {
+            const product = PRODUCTS_DB[barcode];
+            if (product) {
+              const existingItem = cart.find(item => item.barcode === barcode);
+              if (existingItem) {
+                setCart(cart.map(item => 
+                  item.barcode === barcode ? { ...item, quantity: item.quantity + 1 } : item
+                ));
+              } else {
+                setCart([...cart, { ...product, barcode, quantity: 1 }]);
+              }
+            }
+          };
+
+          const updateQuantity = (barcode, change) => {
+            setCart(cart.map(item => {
+              if (item.barcode === barcode) {
+                const newQty = item.quantity + change;
+                return newQty > 0 ? { ...item, quantity: newQty } : item;
+              }
+              return item;
+            }).filter(item => item.quantity > 0));
+          };
+
+          const removeFromCart = (barcode) => {
+            setCart(cart.filter(item => item.barcode !== barcode));
+          };
+
+          const calculateTotal = () => {
+            return cart.reduce((sum, item) => {
+              const discountedPrice = item.price * (1 - item.discount / 100);
+              return sum + (discountedPrice * item.quantity);
+            }, 0);
+          };
+
+          const handlePayment = () => {
+            setToken('SMT-' + Date.now().toString().slice(-8));
+            setShowPayment(false);
+          };
+
+          const resetApp = () => {
+            setCart([]);
+            setToken(null);
+          };
+
+          if (token) {
+            return (
+              <div className="min-h-screen bg-gradient-to-br from-green-50 to-green-100 p-4">
+                <div className="max-w-md mx-auto bg-white rounded-2xl shadow-2xl p-8 text-center">
+                  <div className="text-green-500 mx-auto mb-4"><CheckCircle /></div>
+                  <h2 className="text-3xl font-bold text-gray-800 mb-2">Payment Successful!</h2>
+                  <p className="text-gray-600 mb-6">Show this token at exit</p>
+                  
+                  <div className="bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl p-6 mb-6">
+                    <p className="text-sm mb-2">Token Number</p>
+                    <p className="text-3xl font-bold tracking-wider">{token}</p>
+                  </div>
+
+                  <div className="bg-gray-100 rounded-xl p-4 mb-6">
+                    <div className="w-48 h-48 bg-white mx-auto flex items-center justify-center rounded-lg border-4 border-gray-300">
+                      <div className="text-center">
+                        <div className="text-6xl mb-2">▦</div>
+                        <p className="text-xs text-gray-500">QR Code</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 rounded-lg p-4 mb-6">
+                    <p className="text-2xl font-bold text-blue-600">₹{calculateTotal().toFixed(2)}</p>
+                  </div>
+
+                  <button onClick={resetApp} className="w-full bg-gray-800 text-white py-3 rounded-xl font-semibold">
+                    Start New Shopping
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
+              <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white p-4 shadow-lg">
+                <div className="max-w-md mx-auto flex items-center justify-between">
+                  <div>
+                    <h1 className="text-2xl font-bold">SmartMart</h1>
+                    <p className="text-sm text-blue-100">Self-Billing App</p>
+                  </div>
+                  <ShoppingCart />
+                </div>
+              </div>
+
+              <div className="max-w-md mx-auto p-4">
+                <div className="bg-white rounded-2xl shadow-lg p-6 mb-4">
+                  <h2 className="text-xl font-bold text-gray-800 mb-4">Scan Products</h2>
+                  
+                  <div className="mb-4">
+                    <input
+                      type="text"
+                      value={manualBarcode}
+                      onChange={(e) => setManualBarcode(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && manualBarcode && (addToCart(manualBarcode), setManualBarcode(''))}
+                      placeholder="Enter barcode"
+                      className="w-full px-4 py-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none mb-2"
+                    />
+                  </div>
+
+                  <div className="p-3 bg-gray-50 rounded-lg">
+                    <p className="text-xs font-semibold text-gray-700 mb-2">Quick Add:</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {Object.entries(PRODUCTS_DB).map(([barcode, product]) => (
+                        <button key={barcode} onClick={() => addToCart(barcode)} className="text-xs bg-white px-3 py-2 rounded-lg border hover:bg-blue-50">
+                          <p className="font-semibold">{product.name}</p>
+                          <p className="text-gray-500">₹{product.price}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl shadow-lg p-6 mb-4">
+                  <h2 className="text-xl font-bold text-gray-800 mb-4">Cart ({cart.length})</h2>
+                  
+                  {cart.length === 0 ? (
+                    <p className="text-center text-gray-400 py-8">Your cart is empty</p>
+                  ) : (
+                    <>
+                      <div className="space-y-3 mb-4">
+                        {cart.map((item) => (
+                          <div key={item.barcode} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div className="flex-1">
+                              <p className="font-semibold text-gray-800">{item.name}</p>
+                              <p className="text-sm text-blue-600">₹{item.price}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button onClick={() => updateQuantity(item.barcode, -1)} className="bg-gray-200 p-1 rounded"><Minus /></button>
+                              <span className="font-bold w-8 text-center">{item.quantity}</span>
+                              <button onClick={() => updateQuantity(item.barcode, 1)} className="bg-gray-200 p-1 rounded"><Plus /></button>
+                              <button onClick={() => removeFromCart(item.barcode)} className="bg-red-100 p-1 rounded ml-2"><Trash2 /></button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="pt-4 border-t-2">
+                        <div className="flex justify-between mb-4">
+                          <span className="text-lg font-semibold">Total:</span>
+                          <span className="text-3xl font-bold text-green-600">₹{calculateTotal().toFixed(2)}</span>
+                        </div>
+                        <button onClick={() => setShowPayment(true)} className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2">
+                          <CreditCard />
+                          Proceed to Payment
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {showPayment && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+                  <div className="bg-white rounded-2xl p-6 max-w-md w-full">
+                    <h2 className="text-2xl font-bold mb-4">Complete Payment</h2>
+                    <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                      <p className="text-4xl font-bold text-green-600">₹{calculateTotal().toFixed(2)}</p>
+                    </div>
+                    <button onClick={handlePayment} className="w-full bg-green-600 text-white py-3 rounded-lg font-bold mb-2">
+                      Complete Payment
+                    </button>
+                    <button onClick={() => setShowPayment(false)} className="w-full bg-gray-200 py-3 rounded-lg font-semibold">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
+```
